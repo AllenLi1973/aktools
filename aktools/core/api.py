@@ -180,6 +180,26 @@ def root(request: Request, item_id: str):
         return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
 
 
+def get_concept_by_code(sysmbol) -> list:
+    """
+    通过股票代码获取股票的概念清单
+    :sysmbol: 必填参数，股票代码
+    """
+    params = {
+        "reportName": "RPT_F10_CORETHEME_BOARDTYPE",
+        "columns": "SECURITY_CODE,SECURITY_NAME_ABBR,NEW_BOARD_CODE,BOARD_NAME,SELECTED_BOARD_REASON,NEW_BOARD_CODE",
+        "filter": f'(SECURITY_CODE="{sysmbol}")(IS_PRECISE="1")'
+    }
+    concept_list = requests.get(
+        url="https://datacenter.eastmoney.com/securities/api/data/v1/get",
+        params=params).json()
+    if concept_list['code'] == 0:
+        
+        return concept_list['result']['data']
+    else:
+        return f"获取{sysmbol}的概念板块失败, message: {concept_list['message']}"
+
+
 @app_core.get(path="/custom/{item_id}", description="自定义接口", summary="该接口主要提供自定义开发的数据")
 def root(request: Request, item_id: str):
     """
@@ -237,29 +257,14 @@ def root(request: Request, item_id: str):
         return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
     else:
         try:
-            # received_df = eval("ak." + item_id + f"({eval_str})")
-            received_df = eval("ak." + "stock_zt_pool_em" + f"({eval_str})")
+            received_df = eval("ak." + item_id + f"({eval_str})")
             if received_df is None:
                 logger.info("该接口返回数据为空，请确认参数是否正确：https://akshare.akfamily.xyz")
                 return JSONResponse(
                     status_code=status.HTTP_404_NOT_FOUND,
                     content={"error": "该接口返回数据为空，请确认参数是否正确：https://akshare.akfamily.xyz"},
                 )
-            
-            def get_concept_by_code(sysmbol) -> list:
-                params = {
-                    "reportName": "RPT_F10_CORETHEME_BOARDTYPE",
-                    "columns": "SECURITY_CODE,SECURITY_NAME_ABBR,NEW_BOARD_CODE,BOARD_NAME,SELECTED_BOARD_REASON,NEW_BOARD_CODE",
-                    "filter": f'(SECURITY_CODE="{sysmbol}")(IS_PRECISE="1")'
-                }
-                concept_list = requests.get(
-                    url="https://datacenter.eastmoney.com/securities/api/data/v1/get",
-                    params=params).json()
-                if concept_list['code'] == 0:
-                    return concept_list['result']['data']
-                else:
-                    return f"获取{sysmbol}的概念板块失败, message: {concept_list['message']}"
-            received_df['concept'] = received_df['代码'].apply(get_concept_by_code)
+            received_df['概念'] = received_df['代码'].apply(get_concept_by_code)
             temp_df = received_df.to_json(orient="records", date_format="iso")
         except KeyError as e:
             logger.info(
