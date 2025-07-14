@@ -180,6 +180,100 @@ def root(request: Request, item_id: str):
         return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
 
 
+@app_core.get(path="/custom/{item_id}", description="自定义接口", summary="该接口主要提供自定义开发的数据")
+def root(request: Request, item_id: str):
+    """
+    接收请求参数及接口名称并返回 JSON 数据
+    此处由于 AKShare 的请求中是同步模式，所以这边在定义 root 函数中没有使用 asyncio 来定义，这样可以开启多线程访问
+    :param request: 请求信息
+    :type request: Request
+    :param item_id: 必选参数; 测试接口名 stock_dxsyl_em 来获取 打新收益率 数据
+    :type item_id: str
+    :return: 指定 接口名称 和 参数 的数据
+    :rtype: json
+    """
+    interface_list = dir(ak)
+    decode_params = urllib.parse.unquote(str(request.query_params))
+    # print(decode_params)
+    # if item_id not in interface_list:
+    #     logger.info("未找到该接口，请升级 AKShare 到最新版本并在文档中确认该接口的使用方式：https://akshare.akfamily.xyz")
+    #     return JSONResponse(
+    #         status_code=status.HTTP_404_NOT_FOUND,
+    #         content={
+    #             "error": "未找到该接口，请升级 AKShare 到最新版本并在文档中确认该接口的使用方式：https://akshare.akfamily.xyz"
+    #         },
+    #     )
+    if "cookie" in decode_params:
+        eval_str = (
+                decode_params.split(sep="=", maxsplit=1)[0]
+                + "='"
+                + decode_params.split(sep="=", maxsplit=1)[1]
+                + "'"
+        )
+        eval_str = eval_str.replace("+", " ")
+    else:
+        eval_str = decode_params.replace("&", '", ').replace("=", '="') + '"'
+        eval_str = eval_str.replace("+", " ")  # 处理传递的参数中带空格的情况
+    if not bool(request.query_params):
+        try:
+            received_df = eval("ak." + item_id + "()")
+            if received_df is None:
+                logger.info("该接口返回数据为空，请确认参数是否正确：https://akshare.akfamily.xyz")
+                return JSONResponse(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    content={"error": "该接口返回数据为空，请确认参数是否正确：https://akshare.akfamily.xyz"},
+                )
+            temp_df = received_df.to_json(orient="records", date_format="iso")
+        except KeyError as e:
+            logger.info(
+                f"请输入正确的参数错误 {e}，请升级 AKShare 到最新版本并在文档中确认该接口的使用方式：https://akshare.akfamily.xyz")
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={
+                    "error": f"请输入正确的参数错误 {e}，请升级 AKShare 到最新版本并在文档中确认该接口的使用方式：https://akshare.akfamily.xyz"
+                },
+            )
+        logger.info(f"获取到 {item_id} 的数据")
+        return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+    else:
+        try:
+            # received_df = eval("ak." + item_id + f"({eval_str})")
+            received_df = eval("ak." + "stock_zt_pool_em" + f"({eval_str})")
+            if received_df is None:
+                logger.info("该接口返回数据为空，请确认参数是否正确：https://akshare.akfamily.xyz")
+                return JSONResponse(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    content={"error": "该接口返回数据为空，请确认参数是否正确：https://akshare.akfamily.xyz"},
+                )
+            
+            def get_concept_by_code(sysmbol) -> list:
+                params = {
+                    "reportName": "RPT_F10_CORETHEME_BOARDTYPE",
+                    "columns": "SECURITY_CODE,SECURITY_NAME_ABBR,NEW_BOARD_CODE,BOARD_NAME,SELECTED_BOARD_REASON,NEW_BOARD_CODE",
+                    "filter": f'(SECURITY_CODE="{sysmbol}")(IS_PRECISE="1")'
+                }
+                concept_list = requests.get(
+                    url="https://datacenter.eastmoney.com/securities/api/data/v1/get",
+                    params=params).json()
+                if concept_list['code'] == 0:
+                    return concept_list['result']['data']
+                else:
+                    return f"获取{sysmbol}的概念板块失败, message: {concept_list['message']}"
+            received_df['concept'] = received_df['代码'].apply(get_concept_by_code)
+            temp_df = received_df.to_json(orient="records", date_format="iso")
+        except KeyError as e:
+            logger.info(
+                f"请输入正确的参数错误 {e}，请升级 AKShare 到最新版本并在文档中确认该接口的使用方式：https://akshare.akfamily.xyz")
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={
+                    "error": f"请输入正确的参数错误 {e}，请升级 AKShare 到最新版本并在文档中确认该接口的使用方式：https://akshare.akfamily.xyz"
+                },
+            )
+        logger.info(f"获取到 {item_id} 的数据")
+        return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+
+
 def generate_html_response():
     file_path = get_pyscript_html(file="akscript.html")
     with open(file_path, encoding="utf8") as f:
